@@ -22,6 +22,16 @@
     "total_lines_added": 156,
     "total_lines_removed": 23
   },
+  "rate_limits": {
+    "five_hour": {
+      "used_percentage": 35.0,
+      "resets_at": 1744232400
+    },
+    "seven_day": {
+      "used_percentage": 12.0,
+      "resets_at": 1744750800
+    }
+  },
   "context_window": {
     "total_input_tokens": 15234,
     "total_output_tokens": 4521,

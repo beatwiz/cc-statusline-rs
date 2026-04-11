@@ -73,10 +73,10 @@ pub fn statusline(_show_pr_status: bool) -> String {
             "\x1b[90m"
         };
 
-        let bar_width: usize = 15;
+        let bar_width: usize = 10;
         let filled = (pct * bar_width as f64 / 100.0).round() as usize;
         let empty = bar_width.saturating_sub(filled);
-        let bar: String = "█".repeat(filled) + &"░".repeat(empty);
+        let bar: String = "\u{2588}".repeat(filled) + &"\u{2591}".repeat(empty);
 
         format!(
             "\x1b[38;5;13m\u{f49b} \x1b[90m{}\x1b[0m {}{}%\x1b[0m",
@@ -144,15 +144,40 @@ pub fn statusline(_show_pr_status: bool) -> String {
         String::new()
     };
 
+    let rate_limits_display = if let Some(rate_limits) = input.get("rate_limits") {
+        let mut parts = Vec::new();
+
+        if let Some(five_hour) = rate_limits.get("five_hour") {
+            if let Some(pct) = five_hour.get("used_percentage").and_then(|v| v.as_f64()) {
+                let resets_at = five_hour.get("resets_at").and_then(|v| v.as_i64());
+                parts.push(format_rate_limit("\x1b[38;5;14m\u{f017}", pct, resets_at));
+            }
+        }
+
+        if let Some(seven_day) = rate_limits.get("seven_day") {
+            if let Some(pct) = seven_day.get("used_percentage").and_then(|v| v.as_f64()) {
+                let resets_at = seven_day.get("resets_at").and_then(|v| v.as_i64());
+                parts.push(format_rate_limit("\x1b[38;5;14m\u{f073}", pct, resets_at));
+            }
+        }
+
+        parts.join(" \x1b[90m\u{2022} \x1b[0m")
+    } else {
+        String::new()
+    };
+
     let mut components = Vec::new();
     if !model_display.is_empty() {
-        components.push(model_display.clone());
+        components.push(model_display);
     }
     if !context_display.is_empty() {
-        components.push(context_display.clone());
+        components.push(context_display);
+    }
+    if !rate_limits_display.is_empty() {
+        components.push(rate_limits_display);
     }
     if !cost_display.is_empty() {
-        components.push(cost_display.clone());
+        components.push(cost_display);
     }
 
     let components_str = if components.is_empty() {
@@ -303,6 +328,63 @@ pub fn format_tokens(tokens: u64) -> String {
     }
 }
 
+pub fn format_rate_limit(icon: &str, pct: f64, resets_at: Option<i64>) -> String {
+    let pct = pct.min(100.0);
+    let pct_color = if pct >= 90.0 {
+        "\x1b[31m"
+    } else if pct >= 70.0 {
+        "\x1b[38;5;208m"
+    } else if pct >= 50.0 {
+        "\x1b[33m"
+    } else {
+        "\x1b[90m"
+    };
+
+    let bar_width: usize = 10;
+    let filled = (pct * bar_width as f64 / 100.0).round() as usize;
+    let empty = bar_width.saturating_sub(filled);
+    let bar: String = "\u{2588}".repeat(filled) + &"\u{2591}".repeat(empty);
+
+    let remaining = resets_at
+        .map(|ts| {
+            let now = chrono::Utc::now().timestamp();
+            let secs = (ts - now).max(0);
+            format_duration_short(secs)
+        })
+        .unwrap_or_default();
+
+    let remaining_display = if remaining.is_empty() {
+        String::new()
+    } else {
+        format!(" \x1b[90m({})\x1b[0m", remaining)
+    };
+
+    format!(
+        "{} \x1b[90m{}\x1b[0m {}{}\x1b[90m%\x1b[0m{}",
+        icon, bar, pct_color, pct.round() as u32, remaining_display
+    )
+}
+
+pub fn format_duration_short(total_secs: i64) -> String {
+    let days = total_secs / 86400;
+    let hours = (total_secs % 86400) / 3600;
+    let minutes = (total_secs % 3600) / 60;
+
+    if days > 0 && hours > 0 {
+        format!("{}d{}h", days, hours)
+    } else if days > 0 {
+        format!("{}d", days)
+    } else if hours > 0 && minutes > 0 {
+        format!("{}h{}m", hours, minutes)
+    } else if hours > 0 {
+        format!("{}h", hours)
+    } else if minutes > 0 {
+        format!("{}m", minutes)
+    } else {
+        "~0m".to_string()
+    }
+}
+
 pub fn fish_shorten_path(path: &str) -> String {
     let home = home_dir();
     let path = path.replace(&home, "~");
@@ -330,4 +412,62 @@ pub fn fish_shorten_path(path: &str) -> String {
         .collect();
 
     shortened.join("/")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_rate_limit_low_usage() {
+        let result = format_rate_limit("\u{f017}", 35.0, None);
+        assert!(result.contains("35"));
+        assert!(result.contains("\x1b[90m")); // gray for <50%
+    }
+
+    #[test]
+    fn test_format_rate_limit_medium_usage() {
+        let result = format_rate_limit("\u{f017}", 55.0, None);
+        assert!(result.contains("55"));
+        assert!(result.contains("\x1b[33m")); // yellow for >=50%
+    }
+
+    #[test]
+    fn test_format_rate_limit_high_usage() {
+        let result = format_rate_limit("\u{f073}", 75.0, None);
+        assert!(result.contains("75"));
+        assert!(result.contains("\x1b[38;5;208m")); // orange for >=70%
+    }
+
+    #[test]
+    fn test_format_rate_limit_critical_usage() {
+        let result = format_rate_limit("\u{f017}", 95.0, None);
+        assert!(result.contains("95"));
+        assert!(result.contains("\x1b[31m")); // red for >=90%
+    }
+
+    #[test]
+    fn test_format_rate_limit_caps_at_100() {
+        let result = format_rate_limit("\u{f017}", 150.0, None);
+        assert!(result.contains("100"));
+    }
+
+    #[test]
+    fn test_format_rate_limit_with_resets_at() {
+        let future = chrono::Utc::now().timestamp() + 7200;
+        let result = format_rate_limit("\u{f017}", 35.0, Some(future));
+        assert!(result.contains("("));
+        assert!(result.contains(")"));
+    }
+
+    #[test]
+    fn test_format_duration_short() {
+        assert_eq!(format_duration_short(7200), "2h");
+        assert_eq!(format_duration_short(3660), "1h1m");
+        assert_eq!(format_duration_short(1800), "30m");
+        assert_eq!(format_duration_short(30), "~0m");
+        assert_eq!(format_duration_short(0), "~0m");
+        assert_eq!(format_duration_short(90000), "1d1h");
+        assert_eq!(format_duration_short(432000), "5d");
+    }
 }
