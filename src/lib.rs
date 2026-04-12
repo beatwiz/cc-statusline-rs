@@ -166,49 +166,51 @@ pub fn statusline(_show_pr_status: bool) -> String {
         String::new()
     };
 
-    let mut components = Vec::new();
-    if !model_display.is_empty() {
-        components.push(model_display);
-    }
-    if !context_display.is_empty() {
-        components.push(context_display);
-    }
-    if !rate_limits_display.is_empty() {
-        components.push(rate_limits_display);
-    }
-    if !cost_display.is_empty() {
-        components.push(cost_display);
-    }
-
-    let components_str = if components.is_empty() {
+    let model_str = if model_display.is_empty() {
         String::new()
     } else {
-        format!(
-            " \x1b[90m• \x1b[0m{}",
-            components.join(" \x1b[90m• \x1b[0m")
-        )
+        format!(" \x1b[90m• \x1b[0m{}", model_display)
+    };
+
+    let mut bar_parts = Vec::new();
+    if !context_display.is_empty() {
+        bar_parts.push(context_display);
+    }
+    if !rate_limits_display.is_empty() {
+        bar_parts.push(rate_limits_display);
+    }
+    if !cost_display.is_empty() {
+        bar_parts.push(cost_display);
+    }
+
+    let second_line = if bar_parts.is_empty() {
+        String::new()
+    } else {
+        format!("\n{}", bar_parts.join(" \x1b[90m\u{2022} \x1b[0m"))
     };
 
     if !branch.is_empty() {
         if display_dir.is_empty() {
             format!(
-                "\x1b[38;5;12m\u{f02a2} \x1b[32m{}{}\x1b[0m{}",
-                branch, lines_changed, components_str
+                "\x1b[38;5;12m\u{f02a2} \x1b[32m{}{}\x1b[0m{}{}",
+                branch, lines_changed, model_str, second_line
             )
         } else {
             format!(
-                "\x1b[36m{}\x1b[0m \x1b[38;5;12m\u{f02a2} \x1b[32m{}{}\x1b[0m{}",
+                "\x1b[36m{}\x1b[0m \x1b[38;5;12m\u{f02a2} \x1b[32m{}{}\x1b[0m{}{}",
                 display_dir.trim_end(),
                 branch,
                 lines_changed,
-                components_str
+                model_str,
+                second_line
             )
         }
     } else {
         format!(
-            "\x1b[36m{}\x1b[0m{}",
+            "\x1b[36m{}\x1b[0m{}{}",
             display_dir.trim_end(),
-            components_str
+            model_str,
+            second_line
         )
     }
 }
